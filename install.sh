@@ -1,18 +1,21 @@
 #!/bin/bash
+# olcRTC one-click install. Run a server or a client, built and started in a
+# Podman container. Works both cloned (./install.sh) and piped
+# (curl -fsSL .../install.sh | bash).
 
 echo "ЕСЛИ У ВАС ЕСТЬ ПРОБЛЕМЫ - Я В КУРСЕ, ПРОЕКТ В БЕТЕ, ПО ПРОБЛЕМАМ В ЧАТ t.me/openlibrecommunity ИЛИ ВООБЩЕ НЕКУДА, ЖДИТЕ РЕЛИЗА"
 
-
 set -e
 
-PODMAN_ID=$(tr -dc 'a-z0-9' </dev/urandom | head -c 8)
-CONTAINER_NAME="olcrtc-client-$PODMAN_ID"
+# curl | bash consumes stdin with the script itself, which breaks every
+# `read -p`. Re-point stdin at the real terminal so prompts still work.
+if [ ! -t 0 ] && [ -r /dev/tty ]; then
+    exec < /dev/tty
+fi
+
+RUN_ID=$(tr -dc 'a-z0-9' </dev/urandom | head -c 8)
 IMAGE_NAME="docker.io/library/golang:1.26-alpine3.22"
 REPO_URL="https://github.com/openlibrecommunity/olcrtc.git"
-WORK_DIR="/tmp/olcrtc-client-$PODMAN_ID"
-
-SOCKS_IP="127.0.0.1"
-SOCKS_PORT="8808"
 BRANCH="master"
 NO_CACHE=0
 
@@ -32,7 +35,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "=== OlcRTC Client Deployment Script ==="
+echo "=== OlcRTC Install ==="
 echo ""
 echo "[*] Using branch: $BRANCH"
 echo ""
@@ -81,6 +84,27 @@ validate_key() {
     esac
     [ "${#1}" -eq 64 ]
 }
+
+echo "Select mode:"
+echo "  1) server (srv) - run on the machine your traffic should exit from"
+echo "  2) client (cnc) - run on your local machine, exposes a SOCKS5 proxy"
+read -p "Enter choice [1-2, default: 1]: " MODE_CHOICE
+
+case "$MODE_CHOICE" in
+    2)
+        MODE="cnc"
+        CONTAINER_NAME="olcrtc-client-$RUN_ID"
+        WORK_DIR="/tmp/olcrtc-client-$RUN_ID"
+        ;;
+    *)
+        MODE="srv"
+        CONTAINER_NAME="olcrtc-server-$RUN_ID"
+        WORK_DIR="/tmp/olcrtc-deploy-$RUN_ID"
+        ;;
+esac
+
+echo "[*] Mode: $MODE"
+echo ""
 
 echo "Select provider:"
 echo "  1) jitsi"
@@ -165,75 +189,133 @@ if [ "$PROVIDER" = "jitsi" ]; then
             ;;
     esac
 
-    read -p "Enter Jitsi room name or URL: " JITSI_ROOM_INPUT
-    if [ -z "$JITSI_ROOM_INPUT" ]; then
-        echo "[X] Jitsi room name/URL cannot be empty"
-        exit 1
+    if [ "$MODE" = "srv" ]; then
+        echo "Room options:"
+        echo "  1) Auto-generate new room (recommended)"
+        echo "  2) Use specific room name or URL"
+        read -p "Enter choice [1-2, default: 1]: " ROOM_CHOICE
+    else
+        ROOM_CHOICE=2
     fi
 
-    case "$JITSI_ROOM_INPUT" in
-        http://*|https://*|*/*)
-            ROOM_ID="$JITSI_ROOM_INPUT"
+    case "$ROOM_CHOICE" in
+        2)
+            read -p "Enter Jitsi room name or URL: " JITSI_ROOM_INPUT
+            if [ -z "$JITSI_ROOM_INPUT" ]; then
+                echo "[X] Jitsi room name/URL cannot be empty"
+                exit 1
+            fi
+
+            case "$JITSI_ROOM_INPUT" in
+                http://*|https://*|*/*)
+                    ROOM_ID="$JITSI_ROOM_INPUT"
+                    ;;
+                *)
+                    ROOM_ID="$JITSI_BASE_URL/$JITSI_ROOM_INPUT"
+                    ;;
+            esac
             ;;
         *)
-            ROOM_ID="$JITSI_BASE_URL/$JITSI_ROOM_INPUT"
+            JITSI_ROOM="olcrtc-$RUN_ID"
+            ROOM_ID="$JITSI_BASE_URL/$JITSI_ROOM"
+            echo "[*] Generated Jitsi room URL: $ROOM_ID"
             ;;
     esac
 else
     read -p "Enter Room ID: " ROOM_ID
+    if [ -z "$ROOM_ID" ]; then
+        echo "[X] Room ID/URL cannot be empty"
+        exit 1
+    fi
 fi
 
-if [ -z "$ROOM_ID" ]; then
-    echo "[X] Room ID/URL cannot be empty"
-    exit 1
-fi
+if [ "$MODE" = "srv" ]; then
+    KEY_FILE="$HOME/.olcrtc_key"
 
-echo ""
-read -p "Enter Encryption Key (hex): " KEY
+    if [ -f "$KEY_FILE" ]; then
+        echo "[*] Loading existing encryption key..."
+        KEY=$(tr -d '[:space:]' < "$KEY_FILE")
+        if ! validate_key "$KEY"; then
+            echo "[X] Invalid encryption key in $KEY_FILE"
+            echo "    Remove the file to generate a new key, or replace it with 64 hex characters."
+            exit 1
+        fi
+    else
+        echo "[*] Generating new encryption key..."
+        KEY=$(openssl rand -hex 32)
+        echo "$KEY" > "$KEY_FILE"
+        chmod 600 "$KEY_FILE"
+        echo ""
+        echo "=========================================="
+        echo "NEW ENCRYPTION KEY (saved to $KEY_FILE):"
+        echo "$KEY"
+        echo "=========================================="
+        echo ""
+    fi
+else
+    echo ""
+    read -p "Enter Encryption Key (hex): " KEY
 
-if [ -z "$KEY" ]; then
-    echo "[X] Encryption key cannot be empty"
-    exit 1
-fi
+    if [ -z "$KEY" ]; then
+        echo "[X] Encryption key cannot be empty"
+        exit 1
+    fi
 
-if ! validate_key "$KEY"; then
-    echo "[X] Encryption key must be 64 hex characters"
-    exit 1
+    if ! validate_key "$KEY"; then
+        echo "[X] Encryption key must be 64 hex characters"
+        exit 1
+    fi
 fi
 
 echo ""
 read -p "DNS server [default: 8.8.8.8:53]: " DNS_INPUT
 DNS=${DNS_INPUT:-8.8.8.8:53}
 
-echo ""
-read -p "SOCKS5 ip [default: 127.0.0.1]: " IP_INPUT
-SOCKS_IP=${IP_INPUT:-127.0.0.1}
-
-echo ""
-read -p "SOCKS5 port [default: 8808]: " PORT_INPUT
-SOCKS_PORT=${PORT_INPUT:-8808}
-
-echo ""
-read -p "SOCKS5 username (leave empty to disable auth): " SOCKS_USER_INPUT
-SOCKS_USER=${SOCKS_USER_INPUT:-}
-
-SOCKS_PASS=""
-if [ -n "$SOCKS_USER" ]; then
-    read -s -p "SOCKS5 password: " SOCKS_PASS_INPUT
+if [ "$MODE" = "srv" ]; then
     echo ""
-    SOCKS_PASS=${SOCKS_PASS_INPUT:-}
-fi
+    read -p "Use SOCKS5 proxy for egress? (y/N): " USE_PROXY
 
-case "$SOCKS_IP" in
-    127.*|localhost|::1|\[::1\])
-        ;;
-    *)
-        if [ -z "$SOCKS_USER" ] || [ -z "$SOCKS_PASS" ]; then
-            echo "[X] SOCKS auth required when binding outside loopback (set username and password)"
-            exit 1
-        fi
-        ;;
-esac
+    SOCKS_PROXY_ADDR=""
+    SOCKS_PROXY_PORT=0
+
+    if [[ "$USE_PROXY" =~ ^[Yy]$ ]]; then
+        read -p "Enter SOCKS5 proxy address [default: 127.0.0.1]: " PROXY_ADDR_INPUT
+        SOCKS_PROXY_ADDR=${PROXY_ADDR_INPUT:-127.0.0.1}
+
+        read -p "Enter SOCKS5 proxy port [default: 1080]: " PROXY_PORT_INPUT
+        SOCKS_PROXY_PORT=${PROXY_PORT_INPUT:-1080}
+
+        echo "[*] Will use SOCKS5 proxy: $SOCKS_PROXY_ADDR:$SOCKS_PROXY_PORT"
+    fi
+else
+    echo ""
+    read -p "SOCKS5 ip [default: 127.0.0.1]: " IP_INPUT
+    SOCKS_IP=${IP_INPUT:-127.0.0.1}
+
+    read -p "SOCKS5 port [default: 8808]: " PORT_INPUT
+    SOCKS_PORT=${PORT_INPUT:-8808}
+
+    read -p "SOCKS5 username (leave empty to disable auth): " SOCKS_USER_INPUT
+    SOCKS_USER=${SOCKS_USER_INPUT:-}
+
+    SOCKS_PASS=""
+    if [ -n "$SOCKS_USER" ]; then
+        read -s -p "SOCKS5 password: " SOCKS_PASS_INPUT
+        echo ""
+        SOCKS_PASS=${SOCKS_PASS_INPUT:-}
+    fi
+
+    case "$SOCKS_IP" in
+        127.*|localhost|::1|\[::1\])
+            ;;
+        *)
+            if [ -z "$SOCKS_USER" ] || [ -z "$SOCKS_PASS" ]; then
+                echo "[X] SOCKS auth required when binding outside loopback (set username and password)"
+                exit 1
+            fi
+            ;;
+    esac
+fi
 
 # Transport-specific settings
 VIDEO_W=1920; VIDEO_H=1080; VIDEO_FPS=30
@@ -359,10 +441,9 @@ if [ ! -f "$WORK_DIR/olcrtc" ]; then
     exit 1
 fi
 
-# Generate YAML config
-CONFIG_FILE="$WORK_DIR/client.yaml"
+CONFIG_FILE="$WORK_DIR/config.yaml"
 cat > "$CONFIG_FILE" <<EOF
-mode: cnc
+mode: $MODE
 auth:
   provider: "$PROVIDER"
 EOF
@@ -381,16 +462,28 @@ crypto:
 net:
   transport: "$TRANSPORT"
   dns: "$DNS"
+EOF
+
+if [ "$MODE" = "srv" ] && [ -n "$SOCKS_PROXY_ADDR" ]; then
+    cat >> "$CONFIG_FILE" <<EOF
+socks:
+  proxy_addr: "$SOCKS_PROXY_ADDR"
+  proxy_port: $SOCKS_PROXY_PORT
+EOF
+fi
+
+if [ "$MODE" = "cnc" ]; then
+    cat >> "$CONFIG_FILE" <<EOF
 socks:
   host: "$SOCKS_IP"
   port: $SOCKS_PORT
 EOF
-
-if [ -n "$SOCKS_USER" ]; then
-    cat >> "$CONFIG_FILE" <<EOF
+    if [ -n "$SOCKS_USER" ]; then
+        cat >> "$CONFIG_FILE" <<EOF
   user: "$SOCKS_USER"
   pass: "$SOCKS_PASS"
 EOF
+    fi
 fi
 
 if [ "$TRANSPORT" = "vp8channel" ]; then
@@ -429,8 +522,7 @@ cat >> "$CONFIG_FILE" <<EOF
 debug: false
 EOF
 
-echo "[*] Starting OlcRTC client..."
-START_CMD="./olcrtc client.yaml"
+echo "[*] Starting OlcRTC ($MODE)..."
 podman run -d \
     --name "$CONTAINER_NAME" \
     --network host \
@@ -438,33 +530,91 @@ podman run -d \
     -v "$WORK_DIR":/app:Z \
     -w /app \
     "$IMAGE_NAME" \
-    sh -c "$START_CMD"
+    sh -c "./olcrtc config.yaml"
 
 sleep 2
 
 echo ""
-echo "[+] Client started successfully!"
+echo "[+] $MODE started successfully!"
 echo ""
 echo "Container name: $CONTAINER_NAME"
 echo "Provider:       $PROVIDER"
 echo "Transport:      $TRANSPORT"
 echo "Room ID/URL:    $ROOM_ID"
-if [ -n "$SOCKS_USER" ]; then
-echo "SOCKS5 proxy:   $SOCKS_IP:$SOCKS_PORT (auth: $SOCKS_USER)"
+
+if [ "$MODE" = "srv" ]; then
+    echo "Encryption key: $KEY"
+    echo ""
+
+    TRANSPORT_PAYLOAD=""
+    if [ "$TRANSPORT" = "vp8channel" ]; then
+        TRANSPORT_PAYLOAD="<vp8-fps=${VP8_FPS}&vp8-batch=${VP8_BATCH}>"
+    elif [ "$TRANSPORT" = "seichannel" ]; then
+        TRANSPORT_PAYLOAD="<fps=${SEI_FPS}&batch=${SEI_BATCH}&frag=${SEI_FRAG}&ack-ms=${SEI_ACK}>"
+    elif [ "$TRANSPORT" = "videochannel" ]; then
+        TRANSPORT_PAYLOAD="<video-w=${VIDEO_W}&video-h=${VIDEO_H}&video-fps=${VIDEO_FPS}&video-codec=${VIDEO_CODEC}>"
+        if [ "$VIDEO_CODEC" = "tile" ]; then
+            TRANSPORT_PAYLOAD="<video-w=${VIDEO_W}&video-h=${VIDEO_H}&video-fps=${VIDEO_FPS}&video-codec=${VIDEO_CODEC}&video-tile-module=${VIDEO_TILE_MODULE}&video-tile-rs=${VIDEO_TILE_RS}>"
+        elif [ "$VIDEO_QR_SIZE" -gt 0 ] 2>/dev/null; then
+            TRANSPORT_PAYLOAD="<video-w=${VIDEO_W}&video-h=${VIDEO_H}&video-fps=${VIDEO_FPS}&video-codec=${VIDEO_CODEC}&video-qr-recovery=${VIDEO_QR_RECOVERY}&video-qr-size=${VIDEO_QR_SIZE}>"
+        else
+            TRANSPORT_PAYLOAD="<video-w=${VIDEO_W}&video-h=${VIDEO_H}&video-fps=${VIDEO_FPS}&video-codec=${VIDEO_CODEC}&video-qr-recovery=${VIDEO_QR_RECOVERY}>"
+        fi
+    fi
+
+    read -p "Enter a comment for the config (default: olc - t.me/openlibrecommunity): " sub_configname
+    if [ -z "$sub_configname" ]; then
+        sub_configname="olc - t.me/openlibrecommunity"
+    fi
+
+    OLC_URI="olcrtc://$PROVIDER?${TRANSPORT}${TRANSPORT_PAYLOAD}@$ROOM_ID#$KEY\$$sub_configname"
+    echo "uri: $OLC_URI"
+    echo ""
+
+    GR_BIN="$WORK_DIR/gr"
+    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64) ARCH="amd64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
+    esac
+    GR_URL="https://github.com/zarazaex69/gr/releases/latest/download/gr-${OS}-${ARCH}"
+
+    if curl -fsSL "$GR_URL" -o "$GR_BIN" 2>/dev/null; then
+        chmod +x "$GR_BIN"
+        echo "[*] QR code for your URI (scan with olcbox):"
+        echo ""
+        "$GR_BIN" -o -s "$OLC_URI" 2>/dev/null || echo "[!] QR generation failed"
+        echo ""
+    else
+        echo "[!] Could not download gr ($GR_URL), skipping QR"
+    fi
+
+    if [ -n "$SOCKS_PROXY_ADDR" ]; then
+        echo "SOCKS5 proxy:   $SOCKS_PROXY_ADDR:$SOCKS_PROXY_PORT"
+    fi
 else
-echo "SOCKS5 proxy:   $SOCKS_IP:$SOCKS_PORT"
+    if [ -n "$SOCKS_USER" ]; then
+        echo "SOCKS5 proxy:   $SOCKS_IP:$SOCKS_PORT (auth: $SOCKS_USER)"
+    else
+        echo "SOCKS5 proxy:   $SOCKS_IP:$SOCKS_PORT"
+    fi
 fi
+
 echo ""
 echo "View logs:"
 echo "  podman logs -f $CONTAINER_NAME"
 echo ""
-echo "Stop client:"
+echo "Stop:"
 echo "  podman stop $CONTAINER_NAME"
 echo ""
-echo "Test proxy:"
-if [ -n "$SOCKS_USER" ]; then
-echo "  curl --socks5-hostname $SOCKS_USER:$SOCKS_PASS@$SOCKS_IP:$SOCKS_PORT https://icanhazip.com"
-else
-echo "  curl --socks5-hostname $SOCKS_IP:$SOCKS_PORT https://icanhazip.com"
+
+if [ "$MODE" = "cnc" ]; then
+    echo "Test proxy:"
+    if [ -n "$SOCKS_USER" ]; then
+        echo "  curl --socks5-hostname $SOCKS_USER:$SOCKS_PASS@$SOCKS_IP:$SOCKS_PORT https://icanhazip.com"
+    else
+        echo "  curl --socks5-hostname $SOCKS_IP:$SOCKS_PORT https://icanhazip.com"
+    fi
+    echo ""
 fi
-echo ""

@@ -43,35 +43,27 @@ Current builds use OLC2 encryption with directional HKDF-SHA256 keys, separate d
 
 Display-name dictionaries are embedded. Set optional YAML field `data` to a directory containing `names` and `surnames` to override them.
 
-## Quick start
-
-Generate a shared key (the same on server and client):
+## One-click install
 
 ```sh
-openssl rand -hex 32
+curl -fsSL https://raw.githubusercontent.com/openlibrecommunity/olcrtc/master/install.sh | bash
 ```
 
-You need Podman and git.
+Installs Podman if missing, clones the current code, builds the binary in a container, asks a few questions (server or client, provider, transport, room, key) and starts it. Run it once on the server (mode `srv`) and once on the client (mode `cnc`) - they need the same room ID and encryption key.
 
-```sh
-git clone https://github.com/openlibrecommunity/olcrtc --recurse-submodules
-cd olcrtc
-./scripts/srv.sh
-```
+If you already have the repo cloned, run `./install.sh` directly instead.
 
 Full instructions are in [docs/fast.md](docs/fast.md) and [docs/manual.md](docs/manual.md).
 
 ## Documentation
 
-| Document | Contents |
-|---|---|
-| [about.md](docs/about.md) | architecture, providers, transports, public API |
-| [fast.md](docs/fast.md) | quick start for newcomers |
-| [manual.md](docs/manual.md) | manual build |
-| [configuration.md](docs/configuration.md) | YAML setup |
-| [settings.md](docs/settings.md) | compatibility matrix |
-| [uri.md](docs/uri.md) | client URI format |
-| [sub.md](docs/sub.md) | subscription format |
+- [about.md](docs/about.md) - architecture, providers, transports, public API
+- [fast.md](docs/fast.md) - quick start for newcomers
+- [manual.md](docs/manual.md) - manual build
+- [configuration.md](docs/configuration.md) - YAML setup
+- [settings.md](docs/settings.md) - compatibility matrix
+- [uri.md](docs/uri.md) - client URI format
+- [sub.md](docs/sub.md) - subscription format
 
 ## Build
 

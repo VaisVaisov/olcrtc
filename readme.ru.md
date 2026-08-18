@@ -43,36 +43,27 @@ app -> SOCKS5 -> olcrtc cnc -> WebRTC/SFU сервис -> olcrtc srv -> инте
 
 Словари display name встроены в бинарник. Необязательное поле YAML `data` может указать каталог с файлами `names` и `surnames` для их замены.
 
-## Быстрый старт
-
-Сгенерируй общий ключ (одинаковый на сервере и клиенте):
+## Установка в один клик
 
 ```sh
-openssl rand -hex 32
+curl -fsSL https://raw.githubusercontent.com/openlibrecommunity/olcrtc/master/install.sh | bash
 ```
 
-Нужны Podman и git.
+Ставит Podman, если его нет, клонирует актуальный код, собирает бинарник в контейнере, задаёт несколько вопросов (сервер или клиент, провайдер, транспорт, комната, ключ) и запускает. Запусти скрипт один раз на сервере (режим `srv`) и один раз на клиенте (режим `cnc`) - им нужны одинаковые room ID и ключ шифрования.
 
-```sh
-git clone https://github.com/openlibrecommunity/olcrtc --recurse-submodules
-cd olcrtc
-./scripts/srv.sh
-```
-
+Если репозиторий уже склонирован, просто запусти `./install.sh`.
 
 Полные инструкции в [docs/fast.md](docs/fast.ru.md) и [docs/manual.md](docs/manual.ru.md).
 
 ## Документация
 
-| Документ | Содержание |
-|---|---|
-| [about.md](docs/about.ru.md) | архитектура, провайдеры, транспорты, публичный API |
-| [fast.md](docs/fast.ru.md) | быстрый старт для новичков |
-| [manual.md](docs/manual.ru.md) | ручная сборка |
-| [configuration.md](docs/configuration.ru.md) | настройка YAML |
-| [settings.md](docs/settings.ru.md) | матрица совместимости |
-| [uri.md](docs/uri.ru.md) | формат URI клиента |
-| [sub.md](docs/sub.ru.md) | формат подписки |
+- [about.md](docs/about.ru.md) - архитектура, провайдеры, транспорты, публичный API
+- [fast.md](docs/fast.ru.md) - быстрый старт для новичков
+- [manual.md](docs/manual.ru.md) - ручная сборка
+- [configuration.md](docs/configuration.ru.md) - настройка YAML
+- [settings.md](docs/settings.ru.md) - матрица совместимости
+- [uri.md](docs/uri.ru.md) - формат URI клиента
+- [sub.md](docs/sub.ru.md) - формат подписки
 
 ## Сборка
 
