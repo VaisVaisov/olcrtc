@@ -22,7 +22,7 @@ if [ ! -t 0 ]; then
     exec bash "$tmp" "$@" < /dev/tty
 fi
 
-echo "ЕСЛИ У ВАС ЕСТЬ ПРОБЛЕМЫ - Я В КУРСЕ, ПРОЕКТ В БЕТЕ, ПО ПРОБЛЕМАМ В ЧАТ t.me/openlibrecommunity ИЛИ ВООБЩЕ НЕКУДА, ЖДИТЕ РЕЛИЗА"
+echo "t.me/openlibrecommunity"
 
 RUN_ID=$(tr -dc 'a-z0-9' </dev/urandom | head -c 8)
 IMAGE_NAME="docker.io/library/golang:1.26-alpine3.22"
@@ -187,30 +187,30 @@ if [ "$PROVIDER" = "jitsi" ]; then
     done < <(curl -fsSL "https://raw.githubusercontent.com/openlibrecommunity/olcrtc/$BRANCH/docs/jitsi.instances.yaml" 2>/dev/null | sed -n 's/^  - //p')
 
     if [ ${#JITSI_HOSTS[@]} -eq 0 ]; then
-        echo "[!] Не удалось получить docs/jitsi.instances.yaml, введите сервер вручную."
-        read -p "Введите URL Jitsi-сервера: " JITSI_BASE_INPUT
+        echo "[!] Error pull docs/jitsi.instances.yaml, enter manualy."
+        read -p "enter Jitsi URL: " JITSI_BASE_INPUT
         JITSI_BASE_URL="${JITSI_BASE_INPUT%/}"
         if [ -z "$JITSI_BASE_URL" ]; then
-            echo "[X] URL не может быть пустым"
+            echo "[X] URL empty"
             exit 1
         fi
     else
-        echo "Выберите Jitsi-сервер (проверьте в браузере, какой работает в вашей сети):"
+        echo "Select a Jitsi server (check in your browser which one is running on your network)):"
         i=1
         for host in "${JITSI_HOSTS[@]}"; do
             echo "  $i) https://$host/"
             i=$((i + 1))
         done
         MANUAL_CHOICE=$i
-        echo "  $MANUAL_CHOICE) Другой (ввести вручную)"
-        read -p "Введите номер [1-$MANUAL_CHOICE, по умолчанию: 1]: " JITSI_SERVER_CHOICE
+        echo "  $MANUAL_CHOICE) Other (enter manually)"
+        read -p "Enter the number [1-$MANUAL_CHOICE, by default: 1]: " JITSI_SERVER_CHOICE
         JITSI_SERVER_CHOICE=${JITSI_SERVER_CHOICE:-1}
 
         if [ "$JITSI_SERVER_CHOICE" = "$MANUAL_CHOICE" ]; then
-            read -p "Введите URL Jitsi-сервера: " JITSI_BASE_INPUT
+            read -p "enter Jitsi URL: " JITSI_BASE_INPUT
             JITSI_BASE_URL="${JITSI_BASE_INPUT%/}"
             if [ -z "$JITSI_BASE_URL" ]; then
-                echo "[X] URL не может быть пустым"
+                echo "[X] URL empty"
                 exit 1
             fi
         elif [[ "$JITSI_SERVER_CHOICE" =~ ^[0-9]+$ ]] && [ "$JITSI_SERVER_CHOICE" -ge 1 ] && [ "$JITSI_SERVER_CHOICE" -lt "$MANUAL_CHOICE" ]; then
