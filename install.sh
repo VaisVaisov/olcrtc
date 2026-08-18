@@ -3,15 +3,26 @@
 # Podman container. Works both cloned (./install.sh) and piped
 # (curl -fsSL .../install.sh | bash).
 
-echo "ЕСЛИ У ВАС ЕСТЬ ПРОБЛЕМЫ - Я В КУРСЕ, ПРОЕКТ В БЕТЕ, ПО ПРОБЛЕМАМ В ЧАТ t.me/openlibrecommunity ИЛИ ВООБЩЕ НЕКУДА, ЖДИТЕ РЕЛИЗА"
-
 set -e
 
-# curl | bash consumes stdin with the script itself, which breaks every
-# `read -p`. Re-point stdin at the real terminal so prompts still work.
-if [ ! -t 0 ] && [ -r /dev/tty ]; then
-    exec < /dev/tty
+# curl | bash feeds the script to bash over stdin, so bash is still reading
+# the rest of these lines from fd 0 while it executes earlier ones. Just
+# redirecting fd 0 to /dev/tty here would cut bash off from its own source
+# mid-script. Instead, when stdin is not a terminal, fetch a real copy of
+# the script to a file and re-exec that file with stdin pointed at the
+# terminal, so every `read -p` below works normally.
+if [ ! -t 0 ]; then
+    if [ ! -r /dev/tty ]; then
+        echo "[X] No interactive terminal available (stdin is not a tty and /dev/tty is unreadable)." >&2
+        exit 1
+    fi
+    tmp=$(mktemp -t olcrtc-install.XXXXXX)
+    curl -fsSL https://raw.githubusercontent.com/openlibrecommunity/olcrtc/master/install.sh -o "$tmp"
+    chmod +x "$tmp"
+    exec bash "$tmp" "$@" < /dev/tty
 fi
+
+echo "ЕСЛИ У ВАС ЕСТЬ ПРОБЛЕМЫ - Я В КУРСЕ, ПРОЕКТ В БЕТЕ, ПО ПРОБЛЕМАМ В ЧАТ t.me/openlibrecommunity ИЛИ ВООБЩЕ НЕКУДА, ЖДИТЕ РЕЛИЗА"
 
 RUN_ID=$(tr -dc 'a-z0-9' </dev/urandom | head -c 8)
 IMAGE_NAME="docker.io/library/golang:1.26-alpine3.22"
