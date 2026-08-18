@@ -51,39 +51,46 @@ echo ""
 echo "[*] Using branch: $BRANCH"
 echo ""
 
-if ! command -v podman &> /dev/null; then
-    echo "[!] Installing Podman..."
+install_pkg() {
+    local pkg="$1"
+    echo "[!] Installing $pkg..."
 
+    local sudo_cmd
     if [ "$(id -u)" -eq 0 ]; then
-        SUDO=""
+        sudo_cmd=""
     elif command -v sudo &> /dev/null; then
-        SUDO="sudo"
+        sudo_cmd="sudo"
     elif command -v doas &> /dev/null; then
-        SUDO="doas"
+        sudo_cmd="doas"
     else
-        echo "[X] No sudo/doas found and not running as root. Cannot install podman."
+        echo "[X] No sudo/doas found and not running as root. Cannot install $pkg."
         exit 1
     fi
 
     if command -v apt &> /dev/null; then
         echo "[*] Detected apt (Debian/Ubuntu)"
-        $SUDO apt update
-        $SUDO apt install -y podman
+        $sudo_cmd apt update
+        $sudo_cmd apt install -y "$pkg"
     elif command -v dnf &> /dev/null; then
         echo "[*] Detected dnf (Fedora/RHEL)"
-        $SUDO dnf install -y podman
+        $sudo_cmd dnf install -y "$pkg"
     elif command -v yum &> /dev/null; then
         echo "[*] Detected yum (CentOS/RHEL)"
-        $SUDO yum install -y podman
+        $sudo_cmd yum install -y "$pkg"
     elif command -v pacman &> /dev/null; then
         echo "[*] Detected pacman (Arch)"
-        $SUDO pacman -Sy --noconfirm podman
+        $sudo_cmd pacman -Sy --noconfirm "$pkg"
     else
-        echo "[X] Unsupported package manager. Install podman manually."
+        echo "[X] Unsupported package manager. Install $pkg manually."
         exit 1
     fi
-fi
+}
 
+command -v git &> /dev/null || install_pkg git
+echo "[+] Using git"
+echo ""
+
+command -v podman &> /dev/null || install_pkg podman
 echo "[+] Using Podman"
 echo ""
 
@@ -173,32 +180,45 @@ echo ""
 
 if [ "$PROVIDER" = "jitsi" ]; then
     echo ""
-    echo "Выберите Jitsi-сервер (проверьте в браузере, какой работает в вашей сети):"
-    echo "  1) https://meet.small-dm.ru/"
-    echo "  2) https://meet1.arbitr.ru/"
-    echo "  3) https://meet.handyweb.org/"
-    echo "  4) Другой (ввести вручную)"
-    read -p "Введите номер [1-4, по умолчанию: 1]: " JITSI_SERVER_CHOICE
 
-    case "$JITSI_SERVER_CHOICE" in
-        2)
-            JITSI_BASE_URL="https://meet1.arbitr.ru"
-            ;;
-        3)
-            JITSI_BASE_URL="https://meet.handyweb.org"
-            ;;
-        4)
+    JITSI_HOSTS=()
+    while IFS= read -r host; do
+        [ -n "$host" ] && JITSI_HOSTS+=("$host")
+    done < <(curl -fsSL "https://raw.githubusercontent.com/openlibrecommunity/olcrtc/$BRANCH/docs/jitsi.instances.yaml" 2>/dev/null | sed -n 's/^  - //p')
+
+    if [ ${#JITSI_HOSTS[@]} -eq 0 ]; then
+        echo "[!] Не удалось получить docs/jitsi.instances.yaml, введите сервер вручную."
+        read -p "Введите URL Jitsi-сервера: " JITSI_BASE_INPUT
+        JITSI_BASE_URL="${JITSI_BASE_INPUT%/}"
+        if [ -z "$JITSI_BASE_URL" ]; then
+            echo "[X] URL не может быть пустым"
+            exit 1
+        fi
+    else
+        echo "Выберите Jitsi-сервер (проверьте в браузере, какой работает в вашей сети):"
+        i=1
+        for host in "${JITSI_HOSTS[@]}"; do
+            echo "  $i) https://$host/"
+            i=$((i + 1))
+        done
+        MANUAL_CHOICE=$i
+        echo "  $MANUAL_CHOICE) Другой (ввести вручную)"
+        read -p "Введите номер [1-$MANUAL_CHOICE, по умолчанию: 1]: " JITSI_SERVER_CHOICE
+        JITSI_SERVER_CHOICE=${JITSI_SERVER_CHOICE:-1}
+
+        if [ "$JITSI_SERVER_CHOICE" = "$MANUAL_CHOICE" ]; then
             read -p "Введите URL Jitsi-сервера: " JITSI_BASE_INPUT
             JITSI_BASE_URL="${JITSI_BASE_INPUT%/}"
             if [ -z "$JITSI_BASE_URL" ]; then
                 echo "[X] URL не может быть пустым"
                 exit 1
             fi
-            ;;
-        *)
-            JITSI_BASE_URL="https://meet.small-dm.ru"
-            ;;
-    esac
+        elif [[ "$JITSI_SERVER_CHOICE" =~ ^[0-9]+$ ]] && [ "$JITSI_SERVER_CHOICE" -ge 1 ] && [ "$JITSI_SERVER_CHOICE" -lt "$MANUAL_CHOICE" ]; then
+            JITSI_BASE_URL="https://${JITSI_HOSTS[$((JITSI_SERVER_CHOICE - 1))]}"
+        else
+            JITSI_BASE_URL="https://${JITSI_HOSTS[0]}"
+        fi
+    fi
 
     if [ "$MODE" = "srv" ]; then
         echo "Room options:"
