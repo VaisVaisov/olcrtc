@@ -19,6 +19,10 @@ const (
 	// sendLoop must not wait through a full reconnect because it is the only
 	// consumer of both bounded queues. Old-epoch frames are stale anyway.
 	jSessionWaitTimeout = 2 * time.Second
+
+	// colibriClassEndpointMessage is the JVB bridge-channel message class
+	// used for opaque raw payloads (see endpointMessage and decodeRaw).
+	colibriClassEndpointMessage = "EndpointMessage"
 )
 
 var bridgeMagic = [4]byte{'O', 'L', 'R', '1'} //nolint:gochecknoglobals // wire protocol constant
@@ -175,7 +179,7 @@ func sendEndpointRaw(jSess *j.Session, to string, data []byte) error {
 		return ErrBridgeNotReady
 	}
 	msg := endpointMessage{
-		ColibriClass: "EndpointMessage",
+		ColibriClass: colibriClassEndpointMessage,
 		To:           to,
 		MsgPayload: endpointRawPayload{
 			Raw: base64.StdEncoding.EncodeToString(data),
@@ -333,7 +337,7 @@ func (s *Session) deliverPeerBridgePayload(from string, payload []byte) bool {
 // still on the j library's BridgeSendRaw), for backward compatibility. See
 // olcrtc#143.
 func decodeRaw(m j.BridgeMessage) []byte {
-	if m.Class != "EndpointMessage" {
+	if m.Class != colibriClassEndpointMessage {
 		return nil
 	}
 	enc, ok := rawFieldFrom(m.Fields)
