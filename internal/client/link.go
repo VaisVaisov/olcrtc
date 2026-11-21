@@ -17,12 +17,8 @@ import (
 const peerWaitTimeout = handshake.DefaultTimeout
 
 func (c *Client) bringUpLink(ctx context.Context, cfg Config, cancel context.CancelFunc) error {
-	// ai-generated: added this lock, held for the whole function. WatchConnection starts below,
-	// before the handshake completes, so a mid-handshake reconnect can race this call: handleReconnect
-	// takes reconnectMu too, and without serializing here it can install a fresh working session via
-	// retryHandshake while this call is still in flight, then get overwritten when this call finally
-	// reaches installPairLocked with its own, by-then-stale pair. Safe to hold: every step below is
-	// bounded by handshake.DefaultTimeout/peerWaitTimeout (15s each), not unbounded.
+	// Held for the whole bring-up: WatchConnection starts before the handshake,
+	// so a mid-handshake reconnect would otherwise race installPairLocked.
 	c.reconnectMu.Lock()
 	defer c.reconnectMu.Unlock()
 	linkCfg := tunnelcore.BuildTransportConfig(tunnelcore.LinkConfig{
@@ -52,20 +48,13 @@ func (c *Client) bringUpLink(ctx context.Context, cfg Config, cancel context.Can
 	if connectErr := link.Connect(ctx); connectErr != nil {
 		return fmt.Errorf("failed to connect link: %w", connectErr)
 	}
-	// ai-generated: moved this call earlier in the function (was after the
-	// handshake block below) and added this comment explaining why.
-	// Start watching for reconnect requests now, not after the handshake
-	// below succeeds: goolom's DataChannel can close mid-handshake (its
-	// publisher-side connection is not as stable as Jitsi's), and
-	// onDataChannelClose's queueReconnect() would otherwise queue a request
-	// with nobody consuming it yet - a deadlock where the fix (reconnect)
-	// waits on the very handshake it needs to unstick.
+	// Start watching reconnects before the handshake: goolom can close its
+	// DataChannel mid-handshake and the queued reconnect needs a consumer.
 	c.goTracked(func() { link.WatchConnection(ctx) })
 	conn := muxconn.New(link, c.keys)
 	controlConn := muxconn.NewControl(link, c.keys)
-	// ai-generated: write under sessMu. onData reads c.conn under sessMu.RLock from the transport's
-	// delivery goroutine, live from the moment link.Connect() above succeeded; an unlocked write here
-	// raced it.
+	// onData reads c.conn from the delivery goroutine as soon as Connect returns,
+	// so publish the conns under the lock.
 	c.sessMu.Lock()
 	c.conn, c.controlConn = conn, controlConn
 	c.sessMu.Unlock()

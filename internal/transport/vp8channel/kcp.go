@@ -57,7 +57,7 @@ type kcpRuntime struct {
 	sess      *kcp.UDPSession
 	readDone  chan struct{}
 	writeMu   sync.Mutex // serializes framed writes; also guards writeBuf
-	writeBuf  []byte     // ai-generated: framing scratch, reused under writeMu
+	writeBuf  []byte     // framing scratch, reused under writeMu
 	closeOnce sync.Once
 }
 
@@ -140,8 +140,8 @@ func (r *kcpRuntime) setHeader(hdr [epochHdrLen]byte) {
 // lands and the payload does not, the stream carries a prefix for bytes that
 // were never sent and the reader cannot resynchronise.
 //
-// ai-generated: replaced the two Write calls with a single framed write into a
-// reused buffer; added writeBuf and the cap check.
+// Writes are framed into a reused buffer so a prefix cannot be sent without
+// its payload.
 func (r *kcpRuntime) send(msg []byte) error {
 	if len(msg) > kcpMaxMessage {
 		return ErrKCPMessageTooLarge
