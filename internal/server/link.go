@@ -116,15 +116,17 @@ func (s *Server) reinstallSession(ctx context.Context, dead *smux.Session) {
 	s.reinstallMu.Lock()
 	defer s.reinstallMu.Unlock()
 	s.sessMu.RLock()
+	// An accept loop from an older session generation can report an error after
+	// a reconnect already installed a newer pair. Bail out before any teardown,
+	// otherwise the live pair gets closed and the replacement dropped.
+	if s.staleReinstall(dead) {
+		s.sessMu.RUnlock()
+		return
+	}
 	if s.pair != nil {
-		// ai-generated: changed s.pair.CloseConns() to s.pair.Close() and
-		// added this comment explaining why.
-		// Close (not CloseConns): the stale pair's smux Sessions must be
-		// closed too, not just their muxconns - otherwise a recvLoop
-		// currently parked on its flow-control bucket (waiting on
-		// bucketNotify/die, not reading conn) never notices the conn died
-		// and AcceptStream on it stays blocked until something else
-		// eventually pokes it.
+		// Close, not CloseConns: the smux sessions must be closed too, otherwise
+		// a recvLoop parked on its flow-control bucket never notices and
+		// AcceptStream on it stays blocked.
 		_ = s.pair.Close()
 	} else {
 		if s.conn != nil {
