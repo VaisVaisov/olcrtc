@@ -41,7 +41,7 @@ func (s *Session) sendHello() error {
 			"capabilitiesOffer": goolomCapabilitiesOffer(),
 			"sdkInfo": map[string]any{
 				"implementation": "browser",
-				"version":        "5.27.0",
+				"version":        "6.8.0",
 				"userAgent":      "Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0",
 				"hwConcurrency":  runtime.NumCPU(),
 			},
