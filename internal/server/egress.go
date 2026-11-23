@@ -69,14 +69,14 @@ func (s *Server) dial(request ConnectRequest) (net.Conn, error) {
 	addr := net.JoinHostPort(request.Addr, strconv.Itoa(request.Port))
 	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second, Resolver: s.resolver}
 	if s.socksProxyAddr == "" {
-		conn, err := dialer.Dial("tcp4", addr)
+		conn, err := dialer.Dial("tcp", addr)
 		if err != nil {
 			return nil, fmt.Errorf("dial failed: %w", err)
 		}
 		return conn, nil
 	}
 	proxyAddr := net.JoinHostPort(s.socksProxyAddr, strconv.Itoa(s.socksProxyPort))
-	conn, err := dialer.Dial("tcp4", proxyAddr)
+	conn, err := dialer.Dial("tcp", proxyAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial proxy: %w", err)
 	}
